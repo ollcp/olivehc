@@ -1,0 +1,35 @@
+
+Because OliveHC doesn't have the ability to access the origin when request missing, so we need the WebServer to fetch the item from origin. Besides the WebServer can also act as load balance.
+
+We use Nginx as WebServer, and this is a Nginx filter module named `jstore`, which stores the missing item to OliveHC, by subrequest.
+
+This is tested on Nginx 1.3 ~ 1.4. (The origin's chunked response with not be stored in Nginx 1.2.)
+
+The Nginx configuration is as follows:
+
+    upstream origin { 
+        server www.a.shifen.com;
+    }
+    upstream olivehc {
+        server 127.0.0.1:9512;
+    }
+    server {
+        listen 8099 default;
+        proxy_intercept_errors on;
+        proxy_ignore_client_abort on;
+        proxy_set_header Host "$host";
+
+        location / { 
+            if ($request_method !~ (HEAD|GET)) { return 405; }
+            proxy_pass http://olivehc;  # request cache. return to client, if hit
+            error_page 400 404 405 500 502 504 = @pass; # jump to @pass, if cache miss(404) or fail(5xx)
+        }
+        location @pass {
+            proxy_http_version 1.1;     # enable chunked
+            proxy_pass http://origin;   # request origin
+            jstore @store;              # create a subrequest to @store
+        }
+        location @store {
+            proxy_pass http://olivehc;  # store the missing item
+        }
+    }

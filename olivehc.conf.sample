@@ -1,0 +1,48 @@
+# OliveHC configure file
+
+
+# include included/file/path
+
+# threads 4
+# quit_timeout 60
+# error_log error.log
+# device_badblock_percent 1
+# device_check_270G on
+
+device file/path1
+device file/path2
+
+listen 8535
+    # capacity 0
+    # connections_limit 1000
+    # access_log access.log
+    # keepalive_timeout 60
+    # request_timeout 60
+    # recv_timeout 60
+    # send_timeout 60
+    # expire_default 259200 # 3days
+    # expire_force 0
+    # item_max_size 100M
+    # server_dump on
+    # status_period 60
+    # shutdown_if_not_store off
+    # rcvbuf 0
+    # sndbuf 0
+
+    ## URL is used as the item key by default. If the following 3
+    ## commands are set, the query string, Host header, and OHC-Key
+    ## header will be used as part of the key respectively.
+    # key_include_host off
+    # key_include_query off
+    # key_include_ohc_key off
+
+    ## Filter long tail cold item. See README.md for detail.
+    # passby_enable off
+    # passby_begin_item_nr 1000000
+    # passby_begin_consumed 100G
+    # passby_limit_nr 1000000
+    # passby_expire 3600
+
+listen 8838
+
+# vim: set tw=0 shiftwidth=4 tabstop=4 expandtab:
