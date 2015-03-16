@@ -1,0 +1,369 @@
+#!/bin/bash
+#hanjunfang@baidu.com
+
+#基本路径配置
+bin_path="./bin"
+conf_path="./conf"
+log_path="./log"
+#全局变量定义
+PRO_PID=""  # module process pid
+PRO_PPID=""  # module process ppid
+TOP_PPID="" # 采用TOP路径方式获取模块父进程pid--->supervise pid
+script_path="$(cd $(dirname "$0"); pwd -P)"
+script_name="$(basename $0)"
+program_name=$(echo "${script_name}" | sed 's/\([[:alnum:]]\+\)_control$/\1/')
+[[ ! -f "${script_path}" ]] && module_dir="$(dirname ${script_path})" #模块路径名
+instance_name=$(echo ${module_dir}|sed 's/\/$//g'|awk -F/ '{print $NF}')
+instance_name=${instance_name}_${program_name}
+output_dir=${log_path}/control.log
+cd ${module_dir}
+mkdir -p ${log_path}
+#默认功能接口定义 包括start stop restart check reload help，接口名要在在xxx_control.conf中的_support_cmd变量中有注册
+function start
+{
+#	echo in main start
+	writeLog "Notice" "${script_name}" "${log_path}/${script_name}.log" "in start, begin run start!"
+	if [ ${_start_need_check} -eq 1 ]
+	then
+		check
+		ret=$?
+		if [ ${ret} -eq $NOAH_OK ]
+		then
+			writeLog "warn" "${script_name}" "${log_path}/${script_name}.log" "in start, before run start,program is running!"
+			return $NOAH_ERR_STARTED
+		fi
+	fi
+	get_top_pid "${instance_name}"   # 检查supervise是不是已经启动
+        if [ ! -z "$TOP_PPID" ];then
+                writeLog "warn" "${script_name}" "${log_path}/${script_name}.log" "in start, before run start,supervise is running!"
+		return $NOAH_ERR_FAILED_OPERATION
+        fi
+	[ ! -d "${_status_path}/${instance_name}" ] && mkdir -p "${_status_path}/${instance_name}" 2>/dev/null
+	${_start_cmd_pro} ${_start_cmd_arg} >&${output_dir} &
+	ret=$?
+        if [ ${ret} -ne 0 ]
+        then
+                writeLog "warn" "${script_name}" "${log_path}/${script_name}.log" "in start, run start failed!"
+                return $NOAH_ERR_FAILED_OPERATION
+        fi
+	if [ ${_start_need_check} -eq 1 ]
+        then
+                writeLog "Notice" "${script_name}" "${log_path}/${script_name}.log" "in start, BEGIN check!"
+		ret=1
+		for((i=0;i<${_start_check_times};i++))
+		do
+			check
+                	ret=$?
+                	if [ ${ret} -eq $NOAH_OK ]
+                	then
+                        	writeLog "Notice" "${script_name}" "${log_path}/${script_name}.log" "in start, FINISH check!"
+                        	break
+                	fi
+			sleep ${_start_check_sleep}
+		done
+		if [ ${ret} -eq 1 ]
+		then
+			writeLog "err" "${script_name}" "${log_path}/${script_name}.log" "in start, after check ${_start_check_times}*${_start_check_sleep} secs, start didn't finished!"
+			return $NOAH_ERR_TIMEOUT
+		fi
+        fi
+	writeLog "Notice" "${script_name}" "${log_path}/${script_name}.log" "in start, finish run start!"
+	return $NOAH_OK
+}
+
+
+function stop
+{
+#	echo in main start
+	writeLog "Notice" "${script_name}" "${log_path}/${script_name}.log" "in stop, begin run stop!"
+	if [ ${_stop_need_check} -eq 1 ]
+	then
+		check
+		ret=$?
+		if [ ${ret} -ne $NOAH_OK ]
+		then
+			writeLog "warn" "${script_name}" "${log_path}/${script_name}.log" "in stop, before run stop,program isn't running!"
+			return $NOAH_ERR_NOT_STARTED
+		fi
+	fi
+	#kill_proc ${instance_name}
+        #kill -QUIT `cat olivehc.pid`
+        echo quit |nc 127.1 5210 
+	ret=$?
+        if [ ${ret} -ne 0 ]
+        then
+                writeLog "err" "${script_name}" "${log_path}/${script_name}.log" "in stop, run kill_proc ${_status_path}/${instance_name} failed!"
+                return $NOAH_ERR_FAILED_OPERATION
+        fi
+
+	if [ ${_stop_need_check} -eq 1 ]
+        then
+                writeLog "Notice" "${script_name}" "${log_path}/${script_name}.log" "in stop, BEGIN check!"
+		ret=1
+		for((i=0;i<${_stop_check_times};i++))
+		do
+			check
+                	ret=$?
+                	if [ ${ret} -ne $NOAH_OK ]
+                	then
+                        	writeLog "Notice" "${script_name}" "${log_path}/${script_name}.log" "in stop, FINIST check!"
+                        	break
+                	fi
+			sleep ${_stop_check_sleep}
+		done
+		if [ ${ret} -eq 0 ]
+		then
+			writeLog "err" "${script_name}" "${log_path}/${script_name}.log" "in stop, after check ${_stop_check_times}*${_stop_check_sleep} secs, stop didn't finished!"
+			return $NOAH_ERR_TIMEOUT
+		fi
+        fi
+	writeLog "Notice" "${script_name}" "${log_path}/${script_name}.log" "in stop, finish run stop!"
+        return $NOAH_OK
+}
+function restart
+{
+        stop
+	ret=$?
+	if [ $ret -ne 0 ]
+	then
+		writeLog "err" "${script_name}" "${log_path}/${script_name}.log" "in restart, run stop failed!"
+		return $ret
+	fi	
+	start
+	ret=$?	
+        if [ $ret -ne 0 ]
+        then
+                writeLog "err" "${script_name}" "${log_path}/${script_name}.log" "in restart, run start failed!"
+                return $ret
+        fi
+        return $NOAH_OK
+}
+function check
+{
+        if [ ${#_check_cmd_pro} -lt 2 ]
+	then
+		writeLog "err" "${script_name}" "${log_path}/${script_name}.log" "in check, _check_cmd_pro is empty!"
+		return $NOAH_ERR_FAILED_OPERATION
+	fi
+eval	${_check_cmd_pro} ${_check_cmd_arg}
+        if [ $? -ne 0 ]
+        then
+                writeLog "Notice" "${script_name}" "${log_path}/${script_name}.log" "in check, run \"${_check_cmd_pro} ${_check_cmd_arg}\" find the module isn't alive !"
+                return $NOAH_ERR_FAILED_OPERATION
+        fi	
+	  	writeLog "Notice" "${script_name}" "${log_path}/${script_name}.log" "in check, run \"${_check_cmd_pro} ${_check_cmd_arg}\" find the module is alive !"
+        return $NOAH_OK
+}
+function reload
+{
+        if [ -z ${_reload_cmd_pro} ]
+        then
+                writeLog "err" "${script_name}" "${log_path}/${script_name}.log" "in reload, _reload_cmd_pro is empty!"
+                return $NOAH_ERR_FAILED_OPERATION
+        fi        
+	${_reload_cmd_pro} ${_reload_cmd_arg}
+	if [ $? -ne 0 ]
+        then
+                writeLog "err" "${script_name}" "${log_path}/${script_name}.log" "in reload, ${_reloadcmd_pro} ${_reload_cmd_arg} failed!"
+                return $NOAH_ERR_FAILED_OPERATION
+        fi
+        return $NOAH_OK
+}
+function help
+{
+        echo "Usage:"
+	echo "./bin/${script_name} ${support_cmd}"
+	echo "Example:"
+	echo "./bin/${script_name} start"
+        return $NOAH_OK
+}
+
+#库函数定义
+function writeLog()
+{
+        if [ ${#} -ne 4 ]
+        then
+                echo "writeLog: par num err"
+                echo 
+                echo "Usage:writeLog LogLevel Service LogFile Mesg"
+                echo "e.g. writeLog \"FATAL\" \"image\" \"./logSH/a.log\" \"wget run success.\" "
+                return 1
+        fi
+        local _date=$(date +"%Y-%m-%d %H:%M:%S")
+        local _log_level="${1}"
+        local _service="${2}"
+        local _log_file="${3}"
+        local _log_msg="${4}"
+        local file_size=0
+        local _log_content="${_log_level}: ${_date}: ${_service}: ${_log_msg}"
+
+        # 对日志大小进行判断,根据情况执行回滚
+
+        touch ${_log_file}
+        file_size=$(du -k ${_log_file} | cut -f 1)
+        if [ ${file_size} -gt 2000000 ]
+        then
+                > ${_log_file}
+        fi
+
+        echo ${_log_content} | tee -a ${_log_file}
+        return 0
+}
+
+function get_pid(){
+        local module status_file
+        PRO_PID=
+        module="$1"
+        status_file="${_status_path}/${module}/status"
+        if [ -f "${status_file}" ];then
+                PRO_PID=`od -d --skip-bytes=16 $status_file |awk '{print $2}'`
+        fi
+}
+
+function get_ppid(){
+        local mpid
+        PRO_PPID=
+        mpid="$1"
+        PRO_PPID=$(grep 'PPid' /proc/$mpid/status |awk '{print $2}')
+}
+
+function get_top_pid(){
+        local module top_path foo_array foo2
+        TOP_PPID=
+        TOP_USER=
+        module="$1"
+        #王鹏添加,过滤多余的/
+        #jiangwei,进程不断重启时，可能得到两个pid，按时间排序取前面那个
+        #jiangwei,得到supervise的pid和User
+        top_path=`echo ${_status_path}/${module}'\\>' | sed 's/\/\//\//g'`
+        foo_array=($(ps axo user,pid,cmd --sort=start_time | sed 's/\/\//\//g' |grep "${_supervise_bin}\>" |grep "$top_path"))
+        TOP_PPID=${foo_array[1]}
+        TOP_USER=${foo_array[0]}
+        #echo TOP_PPID=$TOP_PPID TOP_USER=$TOP_USER
+}
+
+function kill_proc
+{
+	module_to_kill=$1
+	if [ ! -d ${_status_path}/${module_to_kill} ]
+	then
+		writeLog "warn" "${script_name}" "${log_path}/${script_name}.log" "in kill_proc, ${_status_path}/${module_to_kill} not exist!"		
+		return 1
+	fi
+	get_top_pid ${module_to_kill}
+	get_pid ${module_to_kill}
+	pname=${program_name}
+	OK=0
+	flag=1
+	if [ ! -z "$PRO_PID" ]
+        then
+                if [ -f "/proc/$PRO_PID/status" ];then #进程是稳定的，没有不断重启 可以读取到/proc/xxxx
+                        get_ppid $PRO_PID                       #得到PRO_PPID
+                fi
+                if [ -z "$PRO_PPID" ] || [ "$PRO_PPID" = "1" ]   
+                then
+                #supervise进程没了,程序的parent process 是init,直接kill
+                #或者程序不断重启，pid不停失效，无法得到ppid,比如transmit lighttpd
+                        if [ "$_k_flag" = "1" ]
+                        then
+                                if [ ! -z "$TOP_PPID" ] && [ "$TOP_PPID" != "1" ]
+                                then
+                                        kill -9 $TOP_PPID 2>/dev/null
+                                        [[ "$pname" ]] && killall -9 $pname 2>/dev/null
+                                        [[ $? = 0  ]] && flag="$OK"
+                                else
+                                        [[ "$pname" ]] && killall -9 $pname 2>/dev/null
+                                        [[ $? = 0  ]] && flag="$OK"
+                                fi
+
+                        else
+                                kill -9 $PRO_PID 2>/dev/null
+                                [[ $? = 0  ]] && flag="$OK"
+                        fi
+                else
+                #程序是稳定的
+                        if [ "$_k_flag" = "0" ] 
+                        then
+                                kill -9 $PRO_PPID $TOP_PPID 2>/dev/null
+                                kill -9 $PRO_PID 2>/dev/null
+                                [[ $? = 0 ]] && flag="$OK"
+                        elif [ "$_k_flag" = "1" ]
+                        then
+                                kill -9 $PRO_PPID 2>/dev/null
+                                kill -9 $TOP_PPID 2>/dev/null
+                                [[ "$pname" ]] && killall -9 $pname 2>/dev/null 
+                                [[ $? = 0 ]] && flag="$OK"
+                        fi
+                fi
+        else
+ 		writeLog "err" "${script_name}" "${log_path}/${script_name}.log" "in kill_proc, can't get pid of ${module_to_kill}!"
+		flag=1               
+                #return $ERROR
+                #没得到程序pid的原因有很多。如果程序的status被人为删除，就无法得到pid了
+                #如果程序被人为kill，supervise也不在了，也会进入这个分支
+        fi
+	if [ -d ${_status_path}/${module_to_kill} ]
+        then
+        	cd ${_status_path}/${module_to_kill} && rm *
+		cd ${module_dir}  
+        fi
+	return ${flag}
+		
+}
+
+
+#source启动配置文件 xxx_control.conf
+source ./${conf_path}/${script_name}.conf
+if [ $? -ne 0 ]
+then
+	writeLog "err" "${script_name}" "${log_path}/${script_name}.log" "source ./conf/${script_name}.conf err!"	
+	exit $NOAH_ERR_OTHER
+fi
+
+#文件存在性检查
+for file in $_file_exist_list
+do
+	if [ ! -e $file ]
+	then
+		writeLog "err" "${script_name}" "${log_path}/${script_name}.log" "$file doesn't exsit, err!"
+		exit $NOAH_ERR_FILE_NOTFOUND
+	fi
+done
+
+#执行权限环境检查
+for file in $_file_exe_list
+do
+        if [ ! -x $file ]
+        then
+                writeLog "err" "${script_name}" "${log_path}/${script_name}.log" "$file has no exe permissions, err!"
+                exit $NOAH_ERR_ACCESS
+        fi
+done
+
+#解析参数并执行
+cmd_find_flag=0
+cmd=$1
+support_cmd="${_basic_support_cmd} ${_ex_support_cmd}"
+for i in ${support_cmd}
+do
+	if [ X${i} = X${cmd} ]
+	then
+		cmd_find_flag=1
+		break
+	fi
+done
+if [ ${cmd_find_flag} -eq 1 ]
+then
+	$cmd
+	ret=$?
+	if [ $ret -ne $NOAH_OK ]
+	then
+		writeLog "err" "${script_name}" "${log_path}/${script_name}.log" "${script_name} $cmd failed, errcode:$ret !"
+		exit $ret 
+	fi
+else
+	writeLog "warn" "${script_name}" "${log_path}/${script_name}.log" "can't support cmd: $cmd !"
+	help
+	exit $NOAH_ERR_PARAMATER
+fi
+exit $NOAH_OK
