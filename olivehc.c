@@ -53,7 +53,7 @@ static void olivehc_global_conf_rollback(ohc_conf_t *conf_cycle)
 
 static int olivehc_load_conf(void)
 {
-#define CONF_CHECK(f) if(f(conf_cycle) != OHC_OK) goto rollback
+    #define CONF_CHECK(f) if(f(conf_cycle) != OHC_OK) goto rollback
 	errno = 0;
 
 	ohc_conf_t *conf_cycle = conf_parse(conf_filename);
@@ -153,6 +153,7 @@ static void olivehc_admin_handler(int admin_fd)
 static void olivehc_master_entry(int admin_fd)
 {
 #define MAX_EVENTS 512
+    
 	struct epoll_event events[MAX_EVENTS];
 	struct list_head *p, *expires, *safep;
 	ohc_timer_node_t *tnode;
@@ -160,8 +161,8 @@ static void olivehc_master_entry(int admin_fd)
 	void *ptr;
 	ohc_request_t *r;
 	time_t last, now;
-
 	last = timer_now(&master_timer);
+
 
 	device_format_load();
 
@@ -312,7 +313,7 @@ int main(int argc, char **argv)
 		perror("error in bind admin port");
 		return 1;
 	}
-        /* constant 1000 */
+    /* constant 1000 */
 	tcp_listen(admin_fd);
 	if(epoll_add_read(master_epoll_fd, admin_fd, (void *)EVENT_TYPE_LISTEN) < 0) {
 		perror("error in add admin port in epoll");

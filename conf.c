@@ -23,6 +23,7 @@ static LIST_HEAD(reserved_devices);
 typedef struct command_s ohc_conf_command_t;
 typedef const char *conf_parse_f(ohc_conf_command_t *, void *, char *);
 
+//24=8+12+4
 struct command_s {
 	char		*name;
 	conf_parse_f	*set_handler;

@@ -28,7 +28,6 @@ typedef struct {
 typedef struct ohc_timer_group_s ohc_timer_group_t;
 typedef struct {
 	struct list_head	tnode_node;
-
 	time_t			timeout;
 	ohc_timer_group_t	*group;
 } ohc_timer_node_t;

@@ -114,7 +114,7 @@ int tcp_bind(unsigned short port)
     if(fd < 0) {
         return -1;
     }
-
+    //set non block
     if(set_nonblock(fd) != 0) {
         return -1;
     }

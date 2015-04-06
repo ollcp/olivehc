@@ -153,7 +153,10 @@ static int worker_create(void)
 		list_add(&worker->wnode, current_worker);
 	}
 
-	/* create thread */
+	/* create thread
+	  * Return: 0 on ok, error number on failure 
+	  * arg: worker 
+           */
 	if(pthread_create(&worker->tid, NULL, worker_entry, worker) != 0) {
 		goto fail6;
 	}
